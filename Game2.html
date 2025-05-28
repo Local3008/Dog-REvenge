@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dog's Revenge</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: monospace;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      background: #c2a67b;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.5);
+      color: white;
+      padding: 10px;
+      border: 2px solid white;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+<canvas id="game" width="960" height="720"></canvas>
+<div id="ui"></div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const ui = document.getElementById('ui');
+
+let state = "intro";
+let codeDigits = [randDigit(), randDigit(), randDigit(), randDigit()];
+let foundDigits = [null, null, null, null];
+let enteredCode = "";
+let zones = ["attic", "kitchen", "basement", "room"];
+let zoneEntered = false;
+let currentZone = "main";
+let ownerHiding = false;
+let ownerZone = null;
+let hasGun = false;
+let player = {x: 400, y: 360};
+let bullet = null;
+let secretCode = "RUN";
+
+function randDigit() {
+  return Math.floor(Math.random() * 10);
+}
+
+function drawDog(x, y) {
+  ctx.fillStyle = "brown";
+  ctx.fillRect(x, y, 30, 20); // body
+  ctx.fillStyle = "black";
+  ctx.fillRect(x + 20, y - 10, 10, 10); // head
+  ctx.fillStyle = "white";
+  ctx.fillRect(x + 22, y - 8, 2, 2); // eye
+  ctx.fillRect(x + 10, y + 18, 4, 4); // foot
+  ctx.fillRect(x, y + 18, 4, 4);
+}
+
+function drawOwner(x, y, angry = false) {
+  ctx.fillStyle = "blue";
+  ctx.fillRect(x, y, 20, 30); // shirt
+  ctx.fillStyle = "brown";
+  ctx.fillRect(x, y + 30, 20, 20); // pants
+  ctx.fillStyle = "peachpuff";
+  ctx.beginPath();
+  ctx.arc(x + 10, y - 10, 10, 0, Math.PI * 2);
+  ctx.fill(); // head
+  ctx.fillStyle = "black";
+  if (angry) {
+    ctx.fillRect(x + 3, y - 16, 4, 2);
+    ctx.fillRect(x + 13, y - 16, 4, 2);
+  } else {
+    ctx.fillRect(x + 4, y - 14, 2, 2);
+    ctx.fillRect(x + 14, y - 14, 2, 2);
+  }
+  ctx.fillStyle = "brown";
+  ctx.fillRect(x, y - 20, 20, 5); // hair
+}
+
+function drawBullet() {
+  if (bullet) {
+    ctx.fillStyle = "yellow";
+    ctx.fillRect(bullet.x, bullet.y, 5, 2);
+  }
+}
+
+function drawScene() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  if (currentZone === "main") {
+    ctx.fillStyle = "#d2b48c";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "white";
+    ctx.fillText("⬆ Attic", 440, 100);
+    ctx.fillText("⬅ Kitchen", 100, 360);
+    ctx.fillText("➡ Owner's Room", 740, 360);
+    ctx.fillText("⬇ Basement", 440, 680);
+  } else {
+    ctx.fillStyle = currentZone === "attic" ? "#888" :
+                    currentZone === "kitchen" ? "#eee" :
+                    currentZone === "basement" ? "#222" :
+                    currentZone === "room" ? "#ccc" : "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "white";
+    ctx.fillText(`${currentZone.charAt(0).toUpperCase() + currentZone.slice(1)} Zone`, 400, 40);
+    ctx.fillText("Click object to start mini-game", 300, 60);
+    ctx.fillRect(400, 300, 60, 60); // minigame trigger
+    ctx.fillText("⬅ Back", 10, 710);
+  }
+
+  if (state === "intro") {
+    drawOwner(460, 300);
+    ctx.fillStyle = "white";
+    ctx.font = "24px monospace";
+    ctx.fillText("No treats for you today!", 300, 200);
+  }
+
+  drawDog(player.x, player.y);
+  drawBullet();
+
+  if (state === "hasGun" && currentZone === ownerZone && !bullet) {
+    drawOwner(480, 300);
+  }
+}
+
+function updateUI() {
+  if (state === "intro") {
+    ui.innerHTML = "Press E to begin your quest.";
+  } else if (state === "quest") {
+    ui.innerHTML = `Current digits: ${foundDigits.map(d => d ?? '_').join(' ')}<br>Use arrow keys to explore.`;
+  } else if (state === "hasGun") {
+    ui.innerHTML = `You have the gun. Find your owner. Click to shoot.`;
+  } else if (state === "win") {
+    ui.innerHTML = `<h2>You Win!</h2><button onclick='location.reload()'>Restart</button>`;
+  } else if (state === "lose") {
+    ui.innerHTML = `<h2>You missed! The owner laughs and sends you to the pound.</h2><button onclick='location.reload()'>Restart</button>`;
+  } else if (state === "escape") {
+    ui.innerHTML = `<h2>You used code RUN and escaped!</h2><button onclick='location.reload()'>Restart</button>`;
+  } else {
+    ui.innerHTML = "";
+  }
+}
+
+function handleZoneTransition() {
+  if (currentZone === "main") {
+    if (player.y < 100) currentZone = "attic";
+    else if (player.y > 600) currentZone = "basement";
+    else if (player.x < 100) currentZone = "kitchen";
+    else if (player.x > 800) currentZone = "room";
+  } else {
+    if ((currentZone === "attic" && player.y > 600) ||
+        (currentZone === "basement" && player.y < 100) ||
+        (currentZone === "kitchen" && player.x > 800) ||
+        (currentZone === "room" && player.x < 100)) {
+      currentZone = "main";
+      player.x = 400;
+      player.y = 360;
+    }
+  }
+}
+
+function tryMiniGame() {
+  if (state === "quest" && currentZone !== "main" && foundDigits[zones.indexOf(currentZone)] === null) {
+    const idx = zones.indexOf(currentZone);
+    foundDigits[idx] = codeDigits[idx];
+    if (foundDigits.every(d => d !== null)) {
+      state = "safe";
+      alert("All digits found! Go to owner's room and click the safe.");
+    } else {
+      alert("Mini-game success! One digit found.");
+    }
+    updateUI();
+  }
+}
+
+canvas.addEventListener("click", (e) => {
+  if (state === "intro") {
+    state = "quest";
+    updateUI();
+    return;
+  }
+  if (currentZone !== "main" && e.offsetX >= 400 && e.offsetX <= 460 && e.offsetY >= 300 && e.offsetY <= 360) {
+    tryMiniGame();
+  }
+  if (state === "safe" && currentZone === "room") {
+    const input = prompt("Enter code to open safe:");
+    if (input === secretCode) {
+      state = "escape";
+    } else if (input === codeDigits.join('')) {
+      hasGun = true;
+      state = "hasGun";
+      ownerZone = zones[Math.floor(Math.random() * 4)];
+      currentZone = "main";
+    } else {
+      alert("Wrong code!");
+    }
+    updateUI();
+  }
+  if (state === "hasGun" && !bullet) {
+    bullet = {x: player.x + 30, y: player.y + 10};
+    if (currentZone === ownerZone) {
+      state = "win";
+    } else {
+      state = "lose";
+    }
+    updateUI();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+    if (e.key === "ArrowUp") player.y -= 20;
+    if (e.key === "ArrowDown") player.y += 20;
+    if (e.key === "ArrowLeft") player.x -= 20;
+    if (e.key === "ArrowRight") player.x += 20;
+    handleZoneTransition();
+  }
+  if (e.key === "e" && state === "intro") {
+    state = "quest";
+    updateUI();
+  }
+});
+
+function gameLoop() {
+  drawScene();
+  requestAnimationFrame(gameLoop);
+}
+
+updateUI();
+gameLoop();
+</script>
+</body>
+</html>
